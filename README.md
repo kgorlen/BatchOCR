@@ -15,22 +15,24 @@ no-inline-html MD033
 # SYNOPSIS
 
 **batchocr** [**-h** | **--help**] [**-d** | **--debug** | **--no-debug**]
-[**--dpi** *DPI*] [**-f** | **--force** | **--no-force**]   [**--pages**
-*PAGES*] [**--words** *WORDS*] [**-q** | **--quiet**   | **--no-quiet**]
-  [**--image** *IMAGE*] [**--text** *TEXT*] [**-a** | **--analyze** |
-  **--no-analyze** | **--commit** | **--no-commit** | **--rollback** |
-  **--no-rollback**] [**-v** | **--version** | **--no-version**]
-  [*FILES* ...]
+[**--dpi** *DPI*] [**-f** | **--force** | **--no-force**]  [**--image**
+*PERCENT*] [**--pages** *PAGES*] [**-q** | **--quiet**   | **--no-quiet**]
+[**--text** *PERCENT*] [**--unsearchable** *PAGES*] [**--words** *WORDS*]<br>
+[**-a** | **--analyze** | **--no-analyze** | **--commit** | **--no-commit** |
+  **--rollback** | **--no-rollback**]<br>
+[**-v** | **--version** | **--no-version**]<br>
+[*FILES* ...]
 
 # DESCRIPTION
 
-**batchocr** analyzes the first pages of the listed PDF files and writes
-searchable PDFs to `*_OCR_.pdf` files if any analyzed page is not searchable.
+**batchocr** analyzes the first **--pages** pages of the listed PDF files and
+writes searchable PDFs to `*_OCR_.pdf` files if there are no searchable pages or
+if the number of unsearchable pages is greater than **--unsearchable**.
 
 The **--analyze** option classifies the first **--pages** files of a PDF dcoument as
 *Blank*, *Unsearchable* or *Searchable* without converting the document.  A page
 is classified as *Blank* if there no text blocks, images, or drawings on the
-page.  Otherwise, the percentage of page area covered by text and images is
+page.  Otherwise, the percentage of the page area covered by text and images is
 calculated and the page is classified as *Unsearchable* if the text area is less
 than or equal to **--text** or if the image area is greater than **--image**.
 
@@ -64,20 +66,23 @@ OS-dependent log directory,
 **-f, --force, --no-force**
 : Convert pdf file even if searchable; default False.
 
+**--image** *PERCENT*
+: Page unsearchable if image area exceeds this percent; default 100.
+
 **--pages** *PAGES*
 : Maximum number of pages to analyze for searchability; default 10.
-
-**--words** *WORDS*
-: Minimum number of words in text box for inclusion in text area; default 3.
 
 **-q, --quiet, --no-quiet**
 : Do not print INFO, WARNING, ERROR, or CRITICAL messages to `stderr`; default --no-quiet.
 
-**--image** *IMAGE*
-: Page unsearchable if image area exceeds this percent; default 100.
-
-**--text** *TEXT*
+**--text** *PERCENT*
 : Page unsearchable unless text area exceeds this percent; default 5.
+
+**--unsearchable** *PAGES*
+: Convert PDF if number of unsearchable pages greater than *PAGES*; default 2.
+
+**--words** *WORDS*
+: Minimum number of words in text box for inclusion in text area; default 3.
 
 **-a, --analyze, --no-analyze**
 : Analyze PDF pages and report without conversion; default False.

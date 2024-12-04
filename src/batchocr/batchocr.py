@@ -80,17 +80,19 @@ class ParsedArgs(NamedTuple):
     """Page unsearchable if image area exceeds this percent."""
     pages: int
     """Maximum number of pages to test for searchable words."""
-    text: float
-    """Page unsearchable unless text area exceeds this percent."""
-    words: int
-    """Minimum number of words on page for searchable test."""
     quiet: bool
     """Do not print INFO, WARNING, ERROR, or CRITICAL messages to `stderr`;
     default --no-quiet."""
     rollback: bool
     """Delete *{STEM_SUFFIX}.pdf files."""
+    text: float
+    """Page unsearchable unless text area exceeds this percent."""
+    unsearchable: int
+    """Convert PDF if number of unsearchable pages greater than PAGES."""
     version: bool
     """Display the version number and exit."""
+    words: int
+    """Minimum number of words on page for searchable test."""
     infiles: list[str]
     """Input files."""
 
@@ -141,9 +143,10 @@ def parse_command_line() -> ParsedArgs:
     )
     parser.add_argument(
         '--dpi',
+        metavar='DPI',
         type=int,
         default=300,
-        help='"""Resolution of PDF to TIFF conversion; default 300 dpi"""',
+        help='Resolution of PDF to TIFF conversion; default 300 dpi',
     )
     parser.add_argument(
         '-f',
@@ -153,16 +156,18 @@ def parse_command_line() -> ParsedArgs:
         help='Convert pdf file even if searchable; default False',
     )
     parser.add_argument(
+        '--image',
+        metavar='PERCENT',
+        type=float,
+        default=100.0,
+        help='Page unsearchable if image area exceeds this percent; default 100 percent',
+    )
+    parser.add_argument(
         '--pages',
+        metavar='PAGES',
         type=int,
         default=10,
         help='Maximum number of pages to analyze for searchability; default 10',
-    )
-    parser.add_argument(
-        '--words',
-        type=int,
-        default=3,
-        help='Minimum number of words in text box for inclusion in text area; default 3',
     )
     parser.add_argument(
         '-q',
@@ -172,30 +177,39 @@ def parse_command_line() -> ParsedArgs:
         help='Do not print messages; default False',
     )
     parser.add_argument(
-        '--image',
-        type=float,
-        default=100.0,
-        help='Page unsearchable if image area exceeds this percent; default 100 percent',
-    )
-    parser.add_argument(
         '--text',
+        metavar='PERCENT',
         type=float,
         default=1.0,
         help='Page unsearchable unless text area exceeds this percent; default 1 percent',
+    )
+    parser.add_argument(
+        '--unsearchable',
+        metavar='PAGES',
+        type=int,
+        default=2,
+        help='Convert PDF if number of unsearchable pages greater than PAGES; default 2',
+    )
+    parser.add_argument(
+        '--words',
+        metavar='WORDS',
+        type=int,
+        default=3,
+        help='Minimum number of words in text box for inclusion in text area; default 3',
     )
     exclusive = parser.add_mutually_exclusive_group(required=False)
     exclusive.add_argument(
         '-a',
         '--analyze',
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help='Analyze PDF pages and report without conversion; default False',
     )
     exclusive.add_argument(
         '--commit',
         action=argparse.BooleanOptionalAction,
         default=False,
-        help=f'Replace original .pdf files with searchable {STEM_SUFFIX}.pdf files; default False',
+        help=f'Replace original .pdf files with searchable *{STEM_SUFFIX}.pdf files; default False',
     )
     exclusive.add_argument(
         '--rollback',
@@ -229,8 +243,8 @@ def file_path_generator(
     globs: list[str], pattern: Optional[str] = "*", recursive: bool = True
 ) -> Generator[Path, None, None]:
     """Generate matched files from a list of files and/or directories with
-    globbing, environment variable substitution, '~' expansion,  and optional
-    recursion.
+    globbing, environment variable substitution, '~' expansion, '-' input
+    from stdin, and optional '**' recursion.
 
     Parameters
     ----------
@@ -440,7 +454,7 @@ def convert_to_searchable_pdf(image_path: Path, output_pdf: Path) -> None:
 
             while not temp_pdf.exists():
                 if (exit_status := fine.poll()) is not None:
-                    fatal_error(f'finecmd exited with status {exit_status}')
+                    fatal_error(f'{cmd}: exited with status {exit_status}')
 
                 sleep(1)
 
@@ -454,7 +468,7 @@ def convert_to_searchable_pdf(image_path: Path, output_pdf: Path) -> None:
                 except (PermissionError, OSError) as e:
                     LOGGER.debug(f'{temp_pdf}.rename({output_pdf} failed: {e}, retrying ...)')
                     if (exit_status := fine.poll()) is not None:
-                        fatal_error(f'finecmd exited with status {exit_status}')
+                        fatal_error(f'{cmd}: exited with status {exit_status}')
                 sleep(1)
 
             LOGGER.debug('OCR process done, terminating ...')
@@ -464,7 +478,7 @@ def convert_to_searchable_pdf(image_path: Path, output_pdf: Path) -> None:
                 status = fine.wait(timeout=10)
                 LOGGER.debug(f'FineCmd terminated with exit status {status}')
             except subprocess.TimeoutExpired:
-                fatal_error('Failed to terminate FineCmd.exe')
+                fatal_error(f'{cmd}: Failed to terminate FineCmd.exe')
 
         this_proc = psutil.Process()
         username = this_proc.username()
@@ -484,7 +498,7 @@ def convert_to_searchable_pdf(image_path: Path, output_pdf: Path) -> None:
             LOGGER.debug('Waiting for Sprint.exe to terminate ...')
             status = p.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            fatal_error('Failed to terminate Sprint.exe')
+            fatal_error(f'{cmd}: Failed to terminate Sprint.exe')
 
         LOGGER.debug(f'Sprint status: {status}')
 
@@ -575,19 +589,19 @@ def main() -> None:
             orig_pdf = Path.joinpath(
                 pdf_file.parent, re.sub(rf'(.*){STEM_SUFFIX}.pdf$', r'\1.pdf', pdf_file.name)
             )
-            LOGGER.debug(f'Renaming "{pdf_file}" to "{orig_pdf}" ...')
+            LOGGER.info(f'Renaming "{pdf_file}" to "{orig_pdf}" ...')
             orig_pdf.unlink(missing_ok=True)
             pdf_file.rename(orig_pdf)
-            info_msg(f'"{pdf_file}" renamed to "{orig_pdf}".')
+            info_msg(f'Renamed "{pdf_file}" to "{orig_pdf}".')
         return
 
     if ARGS.rollback:
         # Delete *_OCR_.pdf files.
         for pdf_file in file_path_generator(ARGS.infiles, pattern=f'*{STEM_SUFFIX}.pdf'):
             assert re.match(rf'.+(?-i:{STEM_SUFFIX})\.pdf$', pdf_file.name, re.IGNORECASE)
-            LOGGER.debug(f'Deleting "{pdf_file}" ...')
+            LOGGER.info(f'Deleting "{pdf_file}" ...')
             pdf_file.unlink()
-            info_msg(f'"{pdf_file}" deleted.')
+            info_msg(f'Deleted "{pdf_file}".')
         return
 
     if ARGS.analyze:
@@ -600,7 +614,7 @@ def main() -> None:
 
         # Skip *_OCR_.pdf files
         if re.fullmatch(rf'.*(?-i:{STEM_SUFFIX})\.pdf', pdf_file.name, re.IGNORECASE):
-            info_msg(f'"{pdf_file}" skipped.')
+            info_msg(f'Searchable PDF SKIPPED:"{pdf_file}".')
             continue
 
         ocr_pdf = pdf_file.with_name(pdf_file.stem + f'{STEM_SUFFIX}.pdf')
@@ -608,27 +622,28 @@ def main() -> None:
             if ARGS.force:
                 ocr_pdf.unlink()
             else:
-                info_msg(f'"{ocr_pdf}" exists, skipped.')
+                info_msg(f'Converted PDF SKIPPED: "{ocr_pdf}".')
                 continue
 
         if ARGS.force:
             LOGGER.info(f'"{pdf_file}" --force converting ...')
-        elif 'Unsearchable' in analyze_pdf(pdf_file):
+        elif (len((pdf_type := analyze_pdf(pdf_file))['Searchable']) == 0
+              or len(pdf_type['Unsearchable']) > ARGS.unsearchable):
             LOGGER.info(f'"{pdf_file}" is not searchable, converting ...')
         else:
-            info_msg(f'"{pdf_file}" is searchable, skipped.')
+            info_msg(f'Searchable PDF SKIPPED:"{pdf_file}".')
             continue
 
         with tempfile.NamedTemporaryFile(suffix=".tiff", delete_on_close=False) as tiff_file:
 
             # Convert PDF to images
-            LOGGER.debug(f'Writing pdf images to {tiff_file.name} ...')
+            LOGGER.info(f'Writing pdf images to "{tiff_file.name}" ...')
             pdf_to_multipage_tiff(pdf_file, tiff_file)
 
             # Convert images to searchable PDF using ABBYY
-            LOGGER.debug(f'Writing searchable PDF to {ocr_pdf} ...')
+            LOGGER.info(f'Converting "{pdf_file}" to searchable PDF "{ocr_pdf}" ...')
             convert_to_searchable_pdf(Path(tiff_file.name), ocr_pdf)
-            info_msg(f"Searchable PDF created: {ocr_pdf}")
+            info_msg(f'Searchable PDF CREATED: "{ocr_pdf}".')
 
             # Copy creation time
             if platform.system() == "Windows":
